@@ -90,7 +90,7 @@ pipeline {
             echo 'Pipeline failed. Check the failed stage in Console Output.'
         }
         always {
-            echo 'Pipeline execution finished.'
+            echo 'Pipeline execution finished.
         }
     }
 }

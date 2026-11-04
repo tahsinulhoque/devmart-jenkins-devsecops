@@ -1,10 +1,11 @@
-
 pipeline {
     agent any
 
     options {
         timestamps()
         disableConcurrentBuilds()
+        skipDefaultCheckout(true)
+        timeout(time: 40, unit: 'MINUTES')
     }
 
     stages {
@@ -41,30 +42,40 @@ pipeline {
         }
 
         stage('Frontend Install and Build') {
+            options {
+                timeout(time: 20, unit: 'MINUTES')
+            }
             steps {
                 sh '''
                     set -eu
                     docker run --rm \
+                      --dns 8.8.8.8 --dns 1.1.1.1 \
                       --volumes-from devmart-jenkins \
+                      -v npm_cache:/root/.npm \
+                      -e NEXT_TELEMETRY_DISABLED=1 \
+                      -e NODE_OPTIONS="--dns-result-order=ipv4first --max-old-space-size=2048" \
                       -w "$WORKSPACE/frontend" \
                       node:22-alpine \
-                      sh -c 'npm ci --no-audit --no-fund --fetch-retries=2 --fetch-timeout=120000 && npm run build'
+                      sh -c 'rm -rf node_modules && npm ci --no-audit --no-fund --prefer-offline --maxsockets=3 --fetch-retries=5 --fetch-retry-mintimeout=5000 --fetch-timeout=60000 && npm run build'
                 '''
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    script {
-                        def scannerHome = tool 'SonarScanner'
-                        sh """
-                          "\${scannerHome}/bin/sonar-scanner" \
-                            -Dsonar.projectKey=DevMart \
-                            -Dsonar.projectName=DevMart \
-                            -Dsonar.sources=frontend,backend \
-                            -Dsonar.sourceEncoding=UTF-8
-                        """
+                script {
+                    def scannerHome = tool 'SonarScanner'
+                    withSonarQubeEnv('SonarQube') {
+                        withEnv(["SCANNER_HOME=${scannerHome}"]) {
+                            sh '''
+                                "$SCANNER_HOME/bin/sonar-scanner" \
+                                  -Dsonar.projectKey=DevMart \
+                                  -Dsonar.projectName=DevMart \
+                                  -Dsonar.sources=frontend,backend \
+                                  -Dsonar.exclusions=**/node_modules/**,**/.next/** \
+                                  -Dsonar.sourceEncoding=UTF-8
+                            '''
+                        }
                     }
                 }
             }
